@@ -332,6 +332,9 @@ body{
 .chip.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600;}
 .chip.sm{padding:6px 10px;font-size:12px;min-width:0;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.unit-wrap{display:flex;align-items:center;gap:7px;}
+.unit-wrap input{flex:1;min-width:0;}
+.unit{font-size:11.5px;color:var(--sub);white-space:nowrap;flex:none;}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
 .swatches{display:flex;gap:9px;flex-wrap:wrap;}
 .swatch{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;}
@@ -553,7 +556,7 @@ body{
     <div class="note">
       非学校官方应用，数据仅供参考，以教务系统为准。课表仅保存在本机浏览器，不会上传到任何服务器。
     </div>
-    <div class="note" style="text-align:center;padding-top:18px;opacity:.6;">课表 <span id="appVer">v2.5 · 网页版</span></div>
+    <div class="note" style="text-align:center;padding-top:18px;opacity:.6;">课表 <span id="appVer">v2.8 · 网页版</span></div>
   </div>
 
   <!-- 拖动时提示目标周次 -->
@@ -599,7 +602,7 @@ body{
     <div class="kv" style="border-bottom:1px solid var(--line);"><div class="k" id="csWeekKey">本周</div><div class="v" id="csThisWeek">—</div></div>
     <div class="adjust-row" id="csAdjustRow">
       <button class="adj-btn" id="csSkipBtn" onclick="toggleSkipThisWeek()">本周停课</button>
-      <button class="adj-btn" onclick="openMoveSheet()">调整到其他时间</button>
+      <button class="adj-btn" onclick="openMoveSheet()">调整 / 停课…</button>
     </div>
     <div class="sheet-actions">
       <button class="btn-danger" id="csDelete" onclick="deleteEntryFromDetail()">删除</button>
@@ -607,12 +610,27 @@ body{
     </div>
   </div>
 
-  <!-- 调课 -->
+  <!-- 调课 / 停课 -->
   <div class="sheet" id="sheet-move">
     <div class="grab"></div>
     <h3>调整这节课</h3>
-    <div class="sub" id="mvSub">只影响第 X 周，原课表不变</div>
+    <div class="sub" id="mvSub">不改原始课表，随时可撤销</div>
+
+    <div class="seg" id="mvModeSeg">
+      <button class="on" data-m="move" onclick="setMvMode('move')">调到其他时间</button>
+      <button data-m="skip" onclick="setMvMode('skip')">这几周停课</button>
+    </div>
+
     <div class="form">
+      <div class="field">
+        <label>生效周次</label>
+        <div class="chips" id="mvScopeChips"></div>
+        <div id="mvScopeExtra"></div>
+        <div class="note" id="mvScopeSummary" style="padding:10px 0 0;">—</div>
+      </div>
+    </div>
+
+    <div class="form" id="mvMoveForm" style="margin-top:2px;">
       <div class="field">
         <label>改到星期</label>
         <div class="chips" id="mvDayChips"></div>
@@ -629,9 +647,10 @@ body{
         <input type="text" id="mvRoom" placeholder="如：4 教-302">
       </div>
     </div>
+
     <div class="sheet-actions">
       <button class="btn-ghost" onclick="closeSheets()">取消</button>
-      <button class="btn-primary" onclick="saveMove()">保存调整</button>
+      <button class="btn-primary" id="mvSaveBtn" onclick="saveMove()">保存调整</button>
     </div>
   </div>
 
@@ -831,8 +850,48 @@ body{
   <div class="sheet" id="sheet-time">
     <div class="grab"></div>
     <h3>节次时间</h3>
-    <div class="sub">各校区作息可能不同，按实际调整后保存</div>
-    <div id="timeList"></div>
+    <div class="sub">先用预设一键套用，只有不合适的节次再单独改</div>
+
+    <div class="form">
+      <div class="field">
+        <label>快速预设</label>
+        <div class="chips" id="tpChips"></div>
+        <div class="note" id="tpNote" style="padding:10px 0 0;">—</div>
+      </div>
+
+      <div class="field">
+        <label>按区间批量生成 <span style="color:var(--sub);font-weight:400;">（一次生成一段，不用逐节填）</span></label>
+        <div class="row2">
+          <select id="genFrom"></select>
+          <select id="genTo"></select>
+        </div>
+        <div class="row2" style="margin-top:9px;">
+          <input type="time" id="genStart" value="08:00">
+          <div class="unit-wrap">
+            <input type="number" id="genDur" value="40" min="15" max="90">
+            <span class="unit">分钟 / 节</span>
+          </div>
+        </div>
+        <div class="row2" style="margin-top:9px;">
+          <div class="unit-wrap">
+            <input type="number" id="genGap" value="5" min="0" max="60">
+            <span class="unit">分钟课间</span>
+          </div>
+          <button class="btn-ghost" onclick="genSectionTimes()">生成这一段</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>逐节微调</label>
+        <div id="timeList"></div>
+      </div>
+    </div>
+
+    <div class="note">
+      「文昌校区」「柳石/柳东」两个预设取自学校官方校历公布的作息时间
+      （gxust.edu.cn，2022-2026 各学年一致）。如果教务处临时调整，用上面的区间生成或逐节微调覆盖即可。
+    </div>
+
     <div class="sheet-actions">
       <button class="btn-ghost" onclick="closeSheets()">取消</button>
       <button class="btn-primary" onclick="saveTimes()">保存</button>
@@ -885,11 +944,39 @@ const DAY_FULL = ['周一','周二','周三','周四','周五','周六','周日'
 const HUES = [212,158,268,32,190,340,8,230,120,278,58,300,170,250,96,20];
 const TYPES = ['必修','选修','实验','实践','其他'];
 
-const DEFAULT_TIMES = [
+/* 广西科技大学作息（来源：gxust.edu.cn 各学年校历 PDF「校区作息时间」，
+   2022-2023 ~ 2025-2026 四份校历一致）。40 分钟一节，共 13 节。 */
+const PRESET_WENCHANG = [
+  ['08:00','08:40'],['08:45','09:25'],['09:50','10:30'],['10:35','11:15'],['11:20','12:00'],
+  ['14:30','15:10'],['15:15','15:55'],['16:10','16:50'],['16:55','17:35'],['17:40','18:20'],
+  ['19:30','20:10'],['20:15','20:55'],['21:00','21:40']
+];
+const PRESET_LIUSHI = [
+  ['08:20','09:00'],['09:05','09:45'],['10:00','10:40'],['10:45','11:25'],['11:30','12:10'],
+  ['14:30','15:10'],['15:15','15:55'],['16:10','16:50'],['16:55','17:35'],['17:40','18:20'],
+  ['19:30','20:10'],['20:15','20:55'],['21:00','21:40']
+];
+const PRESET_45 = [
   ['08:00','08:45'],['08:55','09:40'],['10:00','10:45'],['10:55','11:40'],
   ['14:30','15:15'],['15:25','16:10'],['16:20','17:05'],['17:15','18:00'],
   ['19:30','20:15'],['20:25','21:10'],['21:20','22:05'],['22:15','23:00']
 ];
+
+const TIME_PRESETS = [
+  { id:'wenchang', name:'文昌校区',    note:'40 分钟 · 13 节', times: PRESET_WENCHANG },
+  { id:'liushi',   name:'柳石/柳东',   note:'40 分钟 · 13 节', times: PRESET_LIUSHI },
+  { id:'std45',    name:'45 分钟通用', note:'45 分钟 · 12 节', times: PRESET_45 }
+];
+
+const DEFAULT_TIMES = PRESET_WENCHANG;
+
+/* 节次上限跟着作息表走，不再写死 12 */
+function maxPeriod(){
+  try{
+    const T = (state && state.settings && state.settings.sectionTimes) || DEFAULT_TIMES;
+    return T.length || 12;
+  }catch(e){ return DEFAULT_TIMES.length; }
+}
 
 const DEFAULT_SETTINGS = {
   semesterStart: '2026-08-31',
@@ -1011,8 +1098,8 @@ function normalizeEntry(e){
     room: (e.room||'').trim(),
     type: e.type || '必修',
     day: clamp(parseInt(e.day,10)||1, 1, 7),
-    start: clamp(parseInt(e.start,10)||1, 1, 12),
-    end: clamp(parseInt(e.end,10)||parseInt(e.start,10)||1, 1, 12),
+    start: clamp(parseInt(e.start,10)||1, 1, maxPeriod()),
+    end: clamp(parseInt(e.end,10)||parseInt(e.start,10)||1, 1, maxPeriod()),
     weeks: Array.isArray(e.weeks) && e.weeks.length ? e.weeks.slice().sort((a,b)=>a-b) : weeksFromRange(1,20,0),
     color: e.color || null
   };
@@ -1113,6 +1200,28 @@ function clearOverride(entryId, week){
   state.overrides = (state.overrides||[]).filter(o => !(o.entryId === entryId && o.week === week));
 }
 
+/* 同一次多周调整共享 gid，撤销时整组一起撤 */
+function overrideGroupWeeks(entryId, week){
+  const ov = overrideOf(entryId, week);
+  if(!ov) return [];
+  if(!ov.gid) return [ov.week];
+  return (state.overrides||[])
+    .filter(o => o.gid === ov.gid)
+    .map(o => o.week)
+    .sort((a,b) => a-b);
+}
+
+/* 撤销整组，返回撤掉的周数 */
+function removeOverrideGroup(entryId, week){
+  const ov = overrideOf(entryId, week);
+  if(!ov) return 0;
+  const before = (state.overrides||[]).length;
+  state.overrides = ov.gid
+    ? (state.overrides||[]).filter(o => o.gid !== ov.gid)
+    : (state.overrides||[]).filter(o => !(o.entryId === entryId && o.week === week));
+  return before - state.overrides.length;
+}
+
 /* ==================== 渲染：课表 ==================== */
 function render(opts){
   renderTT(opts);
@@ -1137,7 +1246,7 @@ function renderTT(opts){
   document.getElementById('semesterDesc').textContent =
     state.settings.semesterStart + ' · 共 ' + state.settings.totalWeeks + ' 周';
   document.getElementById('timeDesc').textContent =
-    '第 1 节 ' + times()[0][0] + ' 开始';
+    times().length + ' 节 · 第 1 节 ' + times()[0][0] + ' 开始';
   const rb = state.settings.remindBefore || 0;
   document.getElementById('remindBeforeDesc').textContent = rb === 0 ? '上课时提醒' : '提前 ' + rb + ' 分钟';
   document.getElementById('remindDesc').textContent = NATIVE
@@ -1399,57 +1508,91 @@ function openCourseDetail(id){
   document.getElementById('csWeeks').textContent = compressWeeks(e.weeks);
   document.getElementById('csType').textContent = e.type || '—';
 
-  // 本周状态（停课 / 调课）
+  // 本周状态（停课 / 调课，多周调整会一并说明范围）
   const ov = overrideOf(e.id, viewWeek);
+  const grp = overrideGroupWeeks(e.id, viewWeek);
+  const multi = grp.length > 1;
+  const spanTxt = multi
+    ? '<span style="color:var(--sub)"> · 第 ' + compressWeeks(grp) + ' 周同步</span>'
+    : '';
+
   document.getElementById('csWeekKey').textContent = '第' + viewWeek + '周';
   const wv = document.getElementById('csThisWeek');
   const skipBtn = document.getElementById('csSkipBtn');
   skipBtn.classList.remove('warn');
+  if(grp.length > 1){
+    skipBtn.textContent = '撤销（共 ' + grp.length + ' 周）';
+  }else if(ov){
+    skipBtn.textContent = '撤销本周调整';
+  }else{
+    skipBtn.textContent = '本周停课';
+  }
+
   if(ov && ov.type === 'skip'){
-    wv.innerHTML = '<span style="color:#c53030;">停课</span>';
-    skipBtn.textContent = '恢复本周上课';
+    wv.innerHTML = '<span style="color:#c53030;">停课</span>' + spanTxt;
     skipBtn.classList.add('warn');
   }else if(ov && ov.type === 'move'){
     wv.innerHTML = '调到 ' + DAY_FULL[ov.day-1] + ' 第 ' + ov.start + '-' + ov.end + ' 节'
       + (ov.room ? ' · ' + esc(ov.room) : '')
-      + '<span style="color:var(--sub)">（原 ' + DAY_FULL[e.day-1] + ' 第' + e.start + '-' + e.end + ' 节）</span>';
-    skipBtn.textContent = '撤销本周调整';
+      + '<span style="color:var(--sub)">（原 ' + DAY_FULL[e.day-1] + ' 第' + e.start + '-' + e.end + ' 节）</span>'
+      + spanTxt;
     skipBtn.classList.add('warn');
   }else{
     wv.innerHTML = '<span style="color:var(--sub)">正常上课</span>';
-    skipBtn.textContent = '本周停课';
   }
   openSheet('sheet-course');
 }
 
-/* 本周停课 / 撤销 */
+/* 本周停课；已有调整时撤销（多周调整整组撤销） */
 function toggleSkipThisWeek(){
   const e = state.entries.find(x=>x.id===detailId);
   if(!e) return;
   const ov = overrideOf(e.id, viewWeek);
-  const wasSkip = !!(ov && ov.type === 'skip');
-  clearOverride(e.id, viewWeek);
-  if(!wasSkip){
-    state.overrides.push({ id: uid(), entryId: e.id, week: viewWeek, type: 'skip' });
+
+  if(ov){
+    const n = removeOverrideGroup(e.id, viewWeek);
+    saveState(); closeSheets(); render(); scheduleReminders();
+    showToast(n > 1 ? '已撤销 ' + n + ' 周的调整' : '已恢复第 ' + viewWeek + ' 周正常上课');
+    return;
   }
-  saveState(); closeSheets(); render();
-  showToast(wasSkip || ov ? '已恢复第 ' + viewWeek + ' 周正常上课' : '第 ' + viewWeek + ' 周已停课');
+
+  state.overrides.push({ id: uid(), entryId: e.id, week: viewWeek, type: 'skip', gid: uid() });
+  saveState(); closeSheets(); render(); scheduleReminders();
+  showToast('第 ' + viewWeek + ' 周已停课');
 }
 
-/* 调课 */
+/* ==================== 调课 / 停课（支持跨周） ==================== */
 let moveDraft = null;
+
 function openMoveSheet(){
   const e = state.entries.find(x=>x.id===detailId);
   if(!e) return;
   const ov = overrideOf(e.id, viewWeek);
   const cur = (ov && ov.type === 'move') ? ov : { day: e.day, start: e.start, end: e.end, room: '' };
-  moveDraft = { day: cur.day, start: cur.start, end: cur.end };
+  const grp = overrideGroupWeeks(e.id, viewWeek);
+  const multi = grp.length > 1;
 
-  document.getElementById('mvSub').textContent =
-    '只影响第 ' + viewWeek + ' 周，其他周不变';
+  moveDraft = {
+    mode: (ov && ov.type === 'skip') ? 'skip' : 'move',
+    scope: multi ? 'custom' : 'one',
+    count: 4,
+    custom: multi ? compressWeeks(grp) : compressWeeks(weeksFromRange(viewWeek, Math.min(viewWeek + 3, state.settings.totalWeeks), 0)),
+    day: cur.day, start: cur.start, end: cur.end, room: cur.room || ''
+  };
+
+  document.getElementById('mvSub').textContent = ov
+    ? '这节课本周已有调整，重新保存会覆盖'
+    : '不改原始课表，随时可撤销';
+
   document.getElementById('mvDayChips').innerHTML = DAY_FULL.map((d,i)=>
-    `<button class="chip ${moveDraft.day===i+1?'on':''}" onclick="pickMvDay(${i+1})">${DOW[i]}</button>`
+    `<button class="chip ${moveDraft.day===i+1?'on':''}" data-d="${i+1}" onclick="pickMvDay(${i+1})">${DOW[i]}</button>`
   ).join('');
+
+  document.getElementById('mvScopeChips').innerHTML = [
+    `<button class="chip" data-s="one" onclick="setMvScope('one')">只第 ${viewWeek} 周</button>`,
+    `<button class="chip" data-s="streak" onclick="setMvScope('streak')">连续多周</button>`,
+    `<button class="chip" data-s="custom" onclick="setMvScope('custom')">指定周次</button>`
+  ].join('');
 
   const T = times();
   const so = document.getElementById('mvStart'), eo = document.getElementById('mvEnd');
@@ -1459,28 +1602,134 @@ function openMoveSheet(){
   eo.value = moveDraft.end;
   document.getElementById('mvRoom').value = cur.room || '';
 
+  setMvMode(moveDraft.mode);
+  setMvScope(moveDraft.scope);
+
   closeSheets();
   setTimeout(()=>openSheet('sheet-move'), 220);
 }
+
+function setMvMode(m){
+  if(!moveDraft) return;
+  moveDraft.mode = m;
+  document.querySelectorAll('#mvModeSeg button').forEach(b=>
+    b.classList.toggle('on', b.dataset.m === m));
+  const f = document.getElementById('mvMoveForm');
+  if(f) f.classList.toggle('hidden', m !== 'move');
+  const btn = document.getElementById('mvSaveBtn');
+  if(btn) btn.textContent = (m === 'skip') ? '确认停课' : '保存调整';
+  updateMvSummary();
+}
+
+function setMvScope(sc){
+  if(!moveDraft) return;
+  moveDraft.scope = sc;
+  document.querySelectorAll('#mvScopeChips .chip').forEach(b=>
+    b.classList.toggle('on', b.dataset.s === sc));
+
+  const extra = document.getElementById('mvScopeExtra');
+  if(sc === 'streak'){
+    extra.innerHTML =
+      `<div class="row2" style="margin-top:9px;align-items:center;">` +
+      `<input type="number" id="mvCount" min="1" max="30" value="${moveDraft.count}" oninput="setMvCount(this.value)">` +
+      `<div class="note" style="padding:0;">周，从第 ${viewWeek} 周起</div></div>`;
+  } else if(sc === 'custom'){
+    extra.innerHTML =
+      `<input type="text" id="mvCustom" style="margin-top:9px;" placeholder="如 5-8, 10" value="${esc(moveDraft.custom)}" oninput="setMvCustom(this.value)">`;
+  } else {
+    extra.innerHTML = '';
+  }
+  updateMvSummary();
+}
+
+function setMvCount(v){
+  moveDraft.count = clamp(+v || 1, 1, 30);
+  updateMvSummary();
+}
+function setMvCustom(v){
+  moveDraft.custom = v;
+  updateMvSummary();
+}
+
+/* 当前选择实际会生效的周次（只保留这门课本来就有课的周） */
+function mvScopeWeeks(){
+  const e = state.entries.find(x=>x.id===detailId);
+  if(!e || !moveDraft) return [];
+  const total = state.settings.totalWeeks;
+  let ws;
+  if(moveDraft.scope === 'streak'){
+    ws = weeksFromRange(viewWeek, viewWeek + moveDraft.count - 1, 0);
+  } else if(moveDraft.scope === 'custom'){
+    ws = parseWeeksText(moveDraft.custom || '');
+  } else {
+    ws = [viewWeek];
+  }
+  ws = ws.filter(w => w >= 1 && w <= total && e.weeks.includes(w));
+  return [...new Set(ws)].sort((a,b)=>a-b);
+}
+
+function updateMvSummary(){
+  const box = document.getElementById('mvScopeSummary');
+  const btn = document.getElementById('mvSaveBtn');
+  if(!box || !moveDraft) return;
+
+  const ws = mvScopeWeeks();
+  if(!ws.length){
+    box.innerHTML = '<span style="color:#c53030;">这些周本来就没有这节课，换个周次试试</span>';
+    if(btn) btn.disabled = true;
+    return;
+  }
+  if(btn) btn.disabled = false;
+
+  const scopeTxt = ws.length === 1 ? '第 ' + ws[0] + ' 周' : '第 ' + compressWeeks(ws) + ' 周（共 ' + ws.length + ' 周）';
+  if(moveDraft.mode === 'skip'){
+    box.textContent = '将停课：' + scopeTxt;
+  }else{
+    const start = +document.getElementById('mvStart').value;
+    const end = Math.max(start, +document.getElementById('mvEnd').value);
+    box.textContent = '将调整：' + scopeTxt + ' → ' + DAY_FULL[moveDraft.day-1] + ' 第 ' + start + '-' + end + ' 节';
+  }
+}
+
 function pickMvDay(d){
   moveDraft.day = d;
   document.querySelectorAll('#mvDayChips .chip').forEach(b=>
-    b.classList.toggle('on', b.textContent === DOW[d-1]));
+    b.classList.toggle('on', +b.dataset.d === d));
+  updateMvSummary();
 }
+
 function saveMove(){
   const e = state.entries.find(x=>x.id===detailId);
   if(!e || !moveDraft) return;
+
+  const weeks = mvScopeWeeks();
+  if(!weeks.length){ showToast('选中的周次里本来就没有这节课'); return; }
+
   const start = +document.getElementById('mvStart').value;
   const end = Math.max(start, +document.getElementById('mvEnd').value);
   const room = document.getElementById('mvRoom').value.trim();
+  const gid = uid();
 
-  clearOverride(e.id, viewWeek);
-  state.overrides.push({
-    id: uid(), entryId: e.id, week: viewWeek, type: 'move',
-    day: moveDraft.day, start, end, room
-  });
-  saveState(); closeSheets(); render();
-  showToast('第 ' + viewWeek + ' 周已调到 ' + DAY_FULL[moveDraft.day-1] + ' 第 ' + start + '-' + end + ' 节');
+  weeks.forEach(w => clearOverride(e.id, w));
+  if(moveDraft.mode === 'skip'){
+    weeks.forEach(w => state.overrides.push({
+      id: uid(), entryId: e.id, week: w, type: 'skip', gid
+    }));
+  }else{
+    weeks.forEach(w => state.overrides.push({
+      id: uid(), entryId: e.id, week: w, type: 'move',
+      day: moveDraft.day, start, end, room, gid
+    }));
+  }
+
+  saveState(); closeSheets(); render(); scheduleReminders();
+  const wsTxt = weeks.length === 1 ? '第 ' + weeks[0] + ' 周' : compressWeeks(weeks) + ' 周';
+
+  if(moveDraft.mode === 'skip'){
+    showToast(wsTxt + ' 已停课');
+  }else{
+    showToast(wsTxt + ' 已调到 ' + DAY_FULL[moveDraft.day-1] + ' 第 ' + start + '-' + end + ' 节');
+  }
 }
 function editFromDetail(){
   const e = state.entries.find(x=>x.id===detailId);
@@ -1686,23 +1935,112 @@ function openWeekPicker(){
 function pickWeek(i){ viewWeek = i; closeSheets(); render(); }
 
 /* ==================== 节次时间 ==================== */
+let timeDraft = null;
+
+function toMin(hhmm){
+  const m = String(hhmm||'').match(/(\d{1,2}):(\d{2})/);
+  return m ? (+m[1]) * 60 + (+m[2]) : 0;
+}
+function fmtMin(min){
+  const m = ((min % 1440) + 1440) % 1440;
+  return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0');
+}
+
 function openTimeSheet(){
-  const T = times();
-  document.getElementById('timeList').innerHTML = T.map((t,i)=>
+  timeDraft = times().map(t=>t.slice());
+  renderTimeSheet();
+  openSheet('sheet-time');
+}
+
+function renderTimeSheet(){
+  const T = timeDraft || [];
+
+  document.getElementById('tpChips').innerHTML = TIME_PRESETS.map(p=>
+    `<button class="chip" onclick="applyTimePreset('${p.id}')">${p.name}</button>`
+  ).join('');
+
+  const note = document.getElementById('tpNote');
+  if(note){
+    if(!T.length){ note.textContent = '还没有节次时间'; }
+    else{
+      const durs = T.map(t => toMin(t[1]) - toMin(t[0])).filter(x => x > 0);
+      const avg = durs.length ? Math.round(durs.reduce((a,b)=>a+b,0)/durs.length) : 0;
+      note.textContent = '当前 ' + T.length + ' 节 · 每节约 ' + avg + ' 分钟 · 首节 ' + T[0][0] + ' 开始';
+    }
+  }
+
+  // 区间选择器的选项跟着节数走
+  const optHtml = T.map((t,i)=>`<option value="${i+1}">第 ${i+1} 节</option>`).join('');
+  const gf = document.getElementById('genFrom'), gt = document.getElementById('genTo');
+  const pf = gf.value, pt = gt.value;
+  gf.innerHTML = optHtml;
+  gt.innerHTML = optHtml;
+  gf.value = (pf && +pf <= T.length) ? pf : '1';
+  gt.value = (pt && +pt <= T.length) ? pt : String(T.length);
+
+  renderTimeList();
+}
+
+function renderTimeList(){
+  const T = timeDraft || [];
+  const box = document.getElementById('timeList');
+  if(!box) return;
+  box.innerHTML = T.map((t,i)=>
     `<div class="kv"><div class="k" style="width:52px;">第 ${i+1} 节</div><div class="v" style="display:grid;grid-template-columns:1fr 1fr;gap:9px;">
       <input type="time" class="tin" data-i="${i}" data-p="0" value="${t[0]}" style="border:1px solid var(--line);background:var(--bg);color:var(--text);padding:8px;border-radius:9px;font-size:13px;font-family:inherit;width:100%;">
       <input type="time" class="tin" data-i="${i}" data-p="1" value="${t[1]}" style="border:1px solid var(--line);background:var(--bg);color:var(--text);padding:8px;border-radius:9px;font-size:13px;font-family:inherit;width:100%;">
     </div></div>`
   ).join('');
-  openSheet('sheet-time');
 }
-function saveTimes(){
-  const next = times().map(t=>t.slice());
+
+/* 把输入框里的值收回 timeDraft（批量生成前要先收回，别把用户改的冲掉） */
+function collectTimeInputs(){
   document.querySelectorAll('.tin').forEach(inp=>{
-    next[+inp.dataset.i][+inp.dataset.p] = inp.value || next[+inp.dataset.i][+inp.dataset.p];
+    const i = +inp.dataset.i, p = +inp.dataset.p;
+    if(!timeDraft[i]) return;
+    if(inp.value) timeDraft[i][p] = inp.value;
   });
+}
+
+function applyTimePreset(id){
+  const p = TIME_PRESETS.find(x => x.id === id);
+  if(!p) return;
+  collectTimeInputs();
+  timeDraft = p.times.map(t => t.slice());
+  renderTimeSheet();
+  showToast('已套用「' + p.name + '」作息，点保存生效');
+}
+
+/* 区间批量生成：从第 X 节到第 Y 节，按开始时间/时长/课间依次排 */
+function genSectionTimes(){
+  collectTimeInputs();
+  const from = +document.getElementById('genFrom').value;
+  const to = +document.getElementById('genTo').value;
+  const start = document.getElementById('genStart').value || '08:00';
+  const dur = clamp(+document.getElementById('genDur').value || 40, 10, 120);
+  const gap = clamp(+document.getElementById('genGap').value || 0, 0, 60);
+
+  if(to < from){ showToast('结束节次要大于开始节次'); return; }
+
+  // 需要的话先扩容
+  while(timeDraft.length < to) timeDraft.push(['08:00','08:40']);
+
+  let cur = toMin(start);
+  for(let i = from - 1; i < to; i++){
+    timeDraft[i] = [fmtMin(cur), fmtMin(cur + dur)];
+    cur = cur + dur + gap;
+  }
+  renderTimeSheet();
+  showToast('第 ' + from + '-' + to + ' 节已重新排好');
+}
+
+function saveTimes(){
+  collectTimeInputs();
+  const next = timeDraft.map(t => t.slice());
   state.settings.sectionTimes = next;
-  saveState(); closeSheets(); render(); showToast('节次时间已保存');
+  state.entries = state.entries.map(normalizeEntry);   // 节次超出新长度的话夹回来
+  saveState(); closeSheets(); render(); scheduleReminders();
+  showToast('节次时间已保存（' + next.length + ' 节）');
 }
 
 /* ==================== 学期设置 ==================== */
@@ -1998,12 +2336,12 @@ function parseSyncPayload(text){
     let start = 1, end = 2;
     const range = jcs.match(/(\d{1,2})\s*[-~]\s*(\d{1,2})/);
     if(range){
-      start = clamp(+range[1], 1, 12); end = clamp(+range[2], 1, 12);
+      start = clamp(+range[1], 1, maxPeriod()); end = clamp(+range[2], 1, maxPeriod());
     }else if(/^\d{4}$/.test(jcs)){
-      start = clamp(+jcs.slice(0,2), 1, 12); end = clamp(+jcs.slice(2), 1, 12);
+      start = clamp(+jcs.slice(0,2), 1, maxPeriod()); end = clamp(+jcs.slice(2), 1, maxPeriod());
     }else{
       const one = jcs.match(/(\d{1,2})/);
-      if(one) start = end = clamp(+one[1], 1, 12);
+      if(one) start = end = clamp(+one[1], 1, maxPeriod());
     }
 
     let weeks = parseWeeksText(k.zcd || k.weeks || k.w || '');
@@ -2058,12 +2396,13 @@ function parseDayToken(line){
   return map[m[2]];
 }
 function parsePeriodToken(line){
+  const MP = maxPeriod();
   let m = line.match(/第?\s*(\d{1,2})\s*[-~到]\s*(\d{1,2})\s*节/);
-  if(m) return [clamp(+m[1],1,12), clamp(+m[2],1,12)];
+  if(m) return [clamp(+m[1],1,MP), clamp(+m[2],1,MP)];
   m = line.match(/第?\s*(\d{1,2})\s*节/);
-  if(m) return [clamp(+m[1],1,12), clamp(+m[1],1,12)];
+  if(m) return [clamp(+m[1],1,MP), clamp(+m[1],1,MP)];
   m = line.match(/^(\d{1,2})\s*[-~]\s*(\d{1,2})$/);
-  if(m) return [clamp(+m[1],1,12), clamp(+m[2],1,12)];
+  if(m) return [clamp(+m[1],1,MP), clamp(+m[2],1,MP)];
   return null;
 }
 function parseWeeksToken(line){

@@ -1,5 +1,5 @@
 // 离线缓存：首次访问后断网也能看课表
-const CACHE = 'tt-v2';
+const CACHE = 'tt-v3';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
