@@ -56,6 +56,20 @@ class MainActivity : Activity() {
                 val url = request?.url ?: return null
                 return assetLoader.shouldInterceptRequest(url)
             }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                val ver = try {
+                    packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+                } catch (e: Exception) {
+                    "?"
+                }
+                view?.evaluateJavascript(
+                    "(function(){var e=document.getElementById('appVer');" +
+                        "if(e){e.textContent='v$ver \u00b7 App';}})()",
+                    null
+                )
+            }
         }
 
         web.webChromeClient = object : WebChromeClient() {
