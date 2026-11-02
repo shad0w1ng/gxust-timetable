@@ -1,10 +1,12 @@
 package com.gxust.timetable
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -97,6 +99,8 @@ class MainActivity : Activity() {
             }
         }
 
+        NotificationHelper.ensureChannel(this)
+
         web.addJavascriptInterface(Bridge(), "AndroidBridge")
         web.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")
     }
@@ -115,6 +119,58 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun saveFile(fileName: String, content: String, mime: String) {
             runOnUiThread { writeToDownloads(fileName, content, mime) }
+        }
+
+        /** 网页算好的提醒计划，交给系统闹钟排程 */
+        @JavascriptInterface
+        fun scheduleReminders(json: String) {
+            runOnUiThread {
+                try {
+                    ReminderScheduler.saveAndSchedule(this@MainActivity, json)
+                } catch (e: Exception) {
+                    // 排程失败不影响主流程
+                }
+            }
+        }
+
+        /** 立即弹一条通知（测试用 / 前台提醒） */
+        @JavascriptInterface
+        fun notifyNow(title: String, body: String) {
+            runOnUiThread {
+                NotificationHelper.show(
+                    this@MainActivity,
+                    System.currentTimeMillis().toInt(),
+                    title, body
+                )
+            }
+        }
+
+        @JavascriptInterface
+        fun requestNotificationPermission() {
+            runOnUiThread { askNotificationPermission() }
+        }
+    }
+
+    private fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+                return
+            }
+        }
+        toast("通知权限已开启")
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1001) {
+            val ok = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            toast(if (ok) "提醒已开启" else "没有通知权限，无法提醒")
         }
     }
 

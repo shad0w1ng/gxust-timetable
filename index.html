@@ -470,15 +470,6 @@ body{
         </div>
         <div class="sv"><span class="chev"></span></div>
       </div>
-      <div class="srow" onclick="openSyncSheet()">
-        <div class="sl">
-          <div class="sico">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v6h-6"/></svg>
-          </div>
-          <div><div class="st">从教务系统同步</div><div class="sd" id="lastSync">上次同步：刚刚</div></div>
-        </div>
-        <div class="sv"><span class="chev"></span></div>
-      </div>
       <div class="srow" onclick="exportICS()">
         <div class="sl">
           <div class="sico">
@@ -873,9 +864,10 @@ body{
   <div class="sheet" id="sheet-remind">
     <div class="grab"></div>
     <h3>课前提醒</h3>
-    <div class="sub">需要浏览器通知权限，且浏览器处于打开状态</div>
+    <div class="sub">上课前推送一条系统通知</div>
     <div class="chips" id="remindChips"></div>
-    <div class="note">浏览器通知受系统限制，关掉页面就不会提醒。想要稳定提醒，请用「导出到手机日历」，写进系统日历后由系统负责通知。</div>
+    <div class="note" id="remindHint">—</div>
+    <button class="btn-ghost" style="width:100%;margin-top:14px;" onclick="testNotify()">发送测试通知</button>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -1146,8 +1138,11 @@ function renderTT(opts){
     state.settings.semesterStart + ' · 共 ' + state.settings.totalWeeks + ' 周';
   document.getElementById('timeDesc').textContent =
     '第 1 节 ' + times()[0][0] + ' 开始';
-  document.getElementById('remindBeforeDesc').textContent = '提前 ' + state.settings.remindBefore + ' 分钟';
-  document.getElementById('remindDesc').textContent = 'App 打开时提前 ' + state.settings.remindBefore + ' 分钟提醒';
+  const rb = state.settings.remindBefore || 0;
+  document.getElementById('remindBeforeDesc').textContent = rb === 0 ? '上课时提醒' : '提前 ' + rb + ' 分钟';
+  document.getElementById('remindDesc').textContent = NATIVE
+    ? '系统通知 · 关掉 App 也会提醒'
+    : (rb === 0 ? '页面打开时提醒' : '页面打开时提前 ' + rb + ' 分钟提醒');
 
   // 表头
   const ws = weekStartDate(viewWeek);
@@ -1498,7 +1493,7 @@ function deleteEntryFromDetail(){
   if(!confirm('删除「' + e.name + '」这节课？')) return;
   state.entries = state.entries.filter(x=>x.id!==detailId);
   state.overrides = (state.overrides||[]).filter(o=>o.entryId!==detailId);
-  saveState(); closeSheets(); render();
+  saveState(); closeSheets(); render(); scheduleReminders();
   showToast('已删除');
 }
 
@@ -1636,7 +1631,7 @@ function saveEditor(){
   if(idx >= 0) state.entries[idx] = data;
   else state.entries.push(data);
 
-  saveState(); closeSheets(); render();
+  saveState(); closeSheets(); render(); scheduleReminders();
   if(conflict) showToast('已保存，与「' + conflict.name + '」时间重叠');
   else showToast(idx>=0 ? '已更新' : '已添加');
 }
@@ -1726,7 +1721,7 @@ function saveSemester(){
   state.settings.semesterStart = s;
   state.settings.totalWeeks = w;
   viewWeek = currentWeek();
-  saveState(); closeSheets(); render();
+  saveState(); closeSheets(); render(); scheduleReminders();
   showToast('学期设置已保存');
 }
 
@@ -1737,6 +1732,7 @@ function toggleSetting(key){
   if(el) el.classList.toggle('on', state.settings[key]);
   if(key === 'remind' && state.settings.remind) requestNotifyPermission();
   saveState(); render();
+  if(key === 'remind') scheduleReminders();
 }
 function toggleTheme(){
   const dark = state.settings.theme !== 'dark';
@@ -1747,53 +1743,160 @@ function toggleTheme(){
   saveState();
 }
 
-/* ==================== 提醒 ==================== */
+/* ==================== 课前提醒 ==================== */
+const REMIND_LOG_KEY = 'gxust_remind_log';
+
+/* 已提醒记录（按天存，防重复弹） */
+function loadRemindLog(){
+  try{
+    const raw = localStorage.getItem(REMIND_LOG_KEY);
+    if(!raw) return [];
+    const obj = JSON.parse(raw);
+    return obj.date === new Date().toDateString() ? (obj.keys || []) : [];
+  }catch(e){ return []; }
+}
+function saveRemindLog(keys){
+  try{
+    localStorage.setItem(REMIND_LOG_KEY, JSON.stringify({
+      date: new Date().toDateString(),
+      keys: keys.slice(-200)
+    }));
+  }catch(e){}
+}
+let remindLog = loadRemindLog();
+
 function requestNotifyPermission(){
-  if(!('Notification' in window)){ showToast('当前浏览器不支持通知'); return; }
-  if(Notification.permission === 'granted') return;
+  if(NATIVE){
+    try{ window.AndroidBridge.requestNotificationPermission(); }catch(e){}
+    return;
+  }
+  if(!('Notification' in window)){
+    showToast('当前浏览器不支持通知，可改用日历导出');
+    return;
+  }
+  if(Notification.permission === 'granted'){ showToast('提醒已开启'); return; }
   Notification.requestPermission().then(p=>{
-    if(p === 'granted') showToast('提醒已开启');
-    else showToast('未获得通知权限，可改用日历导出');
+    showToast(p === 'granted' ? '提醒已开启' : '未获得通知权限，可改用日历导出');
   });
 }
+
+/* 算出未来 N 天所有要提醒的时间点（已排除停课、已过时的） */
+function buildReminders(days){
+  const T = times();
+  const before = Math.max(0, state.settings.remindBefore || 0);
+  const now = Date.now();
+  const semStart = parseDate(state.settings.semesterStart);
+  const base = new Date(); base.setHours(0,0,0,0);
+  const out = [];
+
+  for(let i=0;i<days;i++){
+    const d = new Date(base); d.setDate(d.getDate() + i);
+    const dayNo = (d.getDay() + 6) % 7 + 1;
+    const week = Math.floor(dayDiff(d, semStart) / 7) + 1;
+    if(week < 1 || week > state.settings.totalWeeks) continue;
+
+    entriesForWeek(week, 7).forEach(e=>{
+      if(e._skip || e.day !== dayNo) return;
+      const slot = T[e.start - 1];
+      if(!slot) return;
+      const [h, m] = slot[0].split(':').map(Number);
+      const at = new Date(d);
+      at.setHours(h, m - before, 0, 0);      // m-before 为负会自动借位到前一小时
+      const ts = at.getTime();
+      if(ts <= now + 10000) return;          // 已经过了的不要
+      out.push({
+        at: ts,
+        key: e.id + '@' + d.toDateString() + '#' + e.start,
+        title: e.name + ' · ' + before + '分钟后',
+        body: slot[0] + ' 上课' + (e.room ? ' · ' + e.room : '') + (e.teacher ? ' · ' + e.teacher : '')
+      });
+    });
+  }
+  return out.sort((a,b)=>a.at - b.at);
+}
+
+/* 把提醒计划交给原生去排系统闹钟（App 关着也能响） */
+let remindTimer = null;
+function scheduleReminders(){
+  if(!NATIVE) return;
+  clearTimeout(remindTimer);
+  remindTimer = setTimeout(()=>{
+    try{
+      const list = state.settings.remind ? buildReminders(7) : [];
+      window.AndroidBridge.scheduleReminders(JSON.stringify(list));
+    }catch(e){}
+  }, 700);
+}
+
+/* 网页版：靠页面定时检查（页面必须开着） */
+function checkReminder(){
+  if(NATIVE) return;                        // App 内由系统闹钟负责
+  if(!state.settings.remind) return;
+  if(!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  const T = times();
+  const now = new Date();
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const dayNo = (now.getDay()+6)%7 + 1;
+  const week = currentWeek();
+  const before = state.settings.remindBefore || 0;
+  let changed = false;
+
+  entriesForWeek(week, 7).forEach(e=>{
+    if(e._skip || e.day !== dayNo) return;
+    const slot = T[e.start - 1];
+    if(!slot) return;
+    const [h, m] = slot[0].split(':').map(Number);
+    const diff = (h*60 + m) - nowMin;
+    if(diff < 0 || diff > before) return;
+
+    const key = e.id + '@' + now.toDateString() + '#' + e.start;
+    if(remindLog.includes(key)) return;
+    remindLog.push(key); changed = true;
+
+    try{
+      new Notification(e.name, {
+        body: slot[0] + ' 上课' + (e.room ? ' · ' + e.room : ''),
+        icon: 'icon-192.png',
+        tag: key
+      });
+    }catch(err){}
+  });
+
+  if(changed) saveRemindLog(remindLog);
+}
+
+function testNotify(){
+  const title = '测试提醒 · 高等数学';
+  const body = '看到这条就说明提醒功能正常';
+  if(NATIVE){
+    try{ window.AndroidBridge.notifyNow(title, body); return; }catch(e){}
+  }
+  if('Notification' in window && Notification.permission === 'granted'){
+    try{ new Notification(title, { body, icon:'icon-192.png' }); return; }catch(e){}
+  }
+  showToast('还没有通知权限，先打开上面的开关');
+}
+
 function openRemindSheet(){
-  document.getElementById('remindChips').innerHTML = [5,10,15,20,30].map(m=>
-    `<button class="chip ${state.settings.remindBefore===m?'on':''}" onclick="setRemindBefore(${m})">${m} 分钟</button>`
+  document.getElementById('remindChips').innerHTML = [0,5,10,15,20,30,45,60].map(m=>
+    `<button class="chip ${state.settings.remindBefore===m?'on':''}" onclick="setRemindBefore(${m})">${m===0?'准时':m+' 分钟'}</button>`
   ).join('');
+
+  const hint = document.getElementById('remindHint');
+  if(hint){
+    hint.textContent = NATIVE
+      ? 'App 使用系统闹钟排程，关掉 App 也会提醒。更换课表后会自动重排。'
+      : '网页版只在页面打开时提醒。想要关掉页面也响，请用手机日历导出，或安装 App。';
+  }
   openSheet('sheet-remind');
 }
+
 function setRemindBefore(m){
   state.settings.remindBefore = m;
   saveState(); closeSheets(); render();
-  showToast('提前 ' + m + ' 分钟提醒');
-}
-
-let notifiedKey = '';
-function checkReminder(){
-  if(!state.settings.remind) return;
-  if(!('Notification' in window) || Notification.permission !== 'granted') return;
-  const now = new Date();
-  const dayNo = (now.getDay()+6)%7 + 1;
-  const week = currentWeek();
-  const nowMin = now.getHours()*60 + now.getMinutes();
-  const T = times();
-  state.entries.forEach(e=>{
-    if(e.day !== dayNo || !e.weeks.includes(week)) return;
-    const [h,m] = T[e.start-1][0].split(':').map(Number);
-    const diff = h*60+m - nowMin;
-    if(diff >= 0 && diff <= state.settings.remindBefore){
-      const key = e.id + '|' + now.toDateString() + '|' + e.start;
-      if(notifiedKey === key) return;
-      notifiedKey = key;
-      try{
-        new Notification('还有 ' + diff + ' 分钟上课', {
-          body: e.name + (e.room ? ' · ' + e.room : ''),
-          icon: 'icon-192.png',
-          tag: key
-        });
-      }catch(err){}
-    }
-  });
+  scheduleReminders();
+  showToast(m === 0 ? '上课时提醒' : '提前 ' + m + ' 分钟提醒');
 }
 
 /* ==================== 导入：解析 ==================== */
@@ -2169,7 +2272,7 @@ function commitImport(){
       if(!seen.has(k)){ state.entries.push(e); seen.add(k); }
     });
   }
-  saveState(); closeSheets(); render();
+  saveState(); closeSheets(); render(); scheduleReminders();
   switchTab('tt', document.querySelector('[data-tab="tt"]'));
   showToast(impMode==='replace' ? `已导入 ${adds.length} 门课程` : `已追加 ${adds.length} 门课程`);
 }
@@ -2223,7 +2326,8 @@ function renderSyncStatus(){
 
   document.getElementById('syncText').textContent = state.entries.length ? '本地' : '空';
   document.getElementById('syncDot').className = 'dot' + (state.entries.length?'':' off');
-  document.getElementById('lastSync').textContent = '上次同步：' + txt;
+  const ls = document.getElementById('lastSync');
+  if(ls) ls.textContent = '上次同步：' + txt;
 
   const names = new Set(state.entries.map(e=>e.name));
   document.getElementById('syncStatusCard').innerHTML = `
@@ -2579,12 +2683,18 @@ area.addEventListener('click', e=>{
 
   viewWeek = currentWeek();
   render();
+  scheduleReminders();
 
-  // 每分钟刷新一次今日卡片 + 检查提醒
+  // 今日卡片定时刷新（仅当前页）
   setInterval(()=>{
     if(activeTab === 'today') renderToday();
-    checkReminder();
-  }, 30000);
+  }, 60000);
+
+  // 网页版：轮询检查提醒；App 内走系统闹钟，checkReminder 会直接返回
+  setInterval(checkReminder, 30000);
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible') checkReminder();
+  });
   checkReminder();
 
   if('serviceWorker' in navigator && location.protocol.startsWith('http')){
