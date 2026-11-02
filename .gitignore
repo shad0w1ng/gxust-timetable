@@ -1,0 +1,18 @@
+# ⚠️ 登录凭据，绝对不能提交
+sync/.session.json
+sync/raw-timetable.json
+sync/timetable-import.json
+
+# Android 构建产物
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# 系统垃圾
+.DS_Store
+Thumbs.db

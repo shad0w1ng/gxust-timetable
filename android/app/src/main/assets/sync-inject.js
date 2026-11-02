@@ -1,0 +1,140 @@
+(function () {
+  if (window.__gxustAppSyncLoaded) return;
+  window.__gxustAppSyncLoaded = true;
+
+  var style = document.createElement('style');
+  style.textContent = [
+    '#gxust-app-sync{position:fixed;right:16px;bottom:88px;z-index:2147483647;',
+    'padding:12px 20px;border-radius:26px;border:0;cursor:pointer;',
+    'font-size:16px;font-weight:600;font-family:-apple-system,sans-serif;',
+    'color:#fff;background:linear-gradient(135deg,#2f8bf0,#1257ad);',
+    'box-shadow:0 8px 26px -8px rgba(26,111,212,.95);opacity:.96;}',
+    '#gxust-app-sync:active{transform:scale(.94);}',
+    '#gxust-app-sync.ok{background:linear-gradient(135deg,#22c55e,#15803d);}',
+    '#gxust-app-sync.err{background:linear-gradient(135deg,#ef4444,#b91c1c);}',
+    '#gxust-app-toast{position:fixed;right:16px;bottom:142px;z-index:2147483647;',
+    'max-width:78vw;padding:10px 15px;border-radius:12px;',
+    'background:rgba(20,24,30,.94);color:#fff;font-size:13px;line-height:1.5;',
+    'font-family:-apple-system,sans-serif;opacity:0;transition:opacity .22s ease;',
+    'pointer-events:none;white-space:pre-wrap;}',
+    '#gxust-app-toast.show{opacity:1;}'
+  ].join('');
+  (document.head || document.documentElement).appendChild(style);
+
+  var btn = document.createElement('button');
+  btn.id = 'gxust-app-sync';
+  btn.textContent = '同步课表';
+
+  var toast = document.createElement('div');
+  toast.id = 'gxust-app-toast';
+
+  var timer = null;
+  function tip(msg, sticky) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(timer);
+    if (!sticky) timer = setTimeout(function () { toast.classList.remove('show'); }, 3000);
+  }
+
+  function setBtn(text, cls) {
+    btn.textContent = text;
+    btn.className = cls || '';
+  }
+
+  function term() {
+    var xnm = '', xqm = '';
+    var e1 = document.querySelector('#xnm');
+    var e2 = document.querySelector('#xqm');
+    if (e1 && e1.value) xnm = e1.value;
+    if (e2 && e2.value) xqm = e2.value;
+    if (!xnm || !xqm) {
+      var d = new Date();
+      var m = d.getMonth() + 1;
+      var y = d.getFullYear();
+      if (m >= 8) { xnm = String(y); xqm = '3'; }
+      else if (m === 1) { xnm = String(y - 1); xqm = '3'; }
+      else { xnm = String(y); xqm = '12'; }
+    }
+    return { xnm: xnm, xqm: xqm };
+  }
+
+  function studentId() {
+    var q = new URLSearchParams(location.search);
+    var su = q.get('su');
+    if (su) return su;
+    var el = document.querySelector('#sessionUserKey');
+    if (el && el.value) return el.value;
+    var m = document.documentElement.innerHTML.match(/su=(\d{6,})/);
+    return m ? m[1] : '';
+  }
+
+  function grab() {
+    var t = term();
+    var su = studentId();
+    var url = '/kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151' + (su ? '&su=' + encodeURIComponent(su) : '');
+
+    return fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'xnm=' + t.xnm + '&xqm=' + t.xqm
+    }).then(function (r) {
+      if (r.status === 302 || r.redirected) throw new Error('登录已失效，请重新登录');
+      return r.text();
+    }).then(function (text) {
+      var data;
+      try { data = JSON.parse(text); }
+      catch (e) { throw new Error('返回的不是课表数据，请确认停在课表页面'); }
+
+      var list = data.kbList || [];
+      if (!list.length) {
+        throw new Error('课表为空，可能是学期不对（当前用 ' + t.xnm + ' 学年 ' + t.xqm + ' 学期码）');
+      }
+
+      var slim = list.map(function (k) {
+        return { kcmc: k.kcmc, xm: k.xm, cdmc: k.cdmc, xqj: k.xqj, jcs: k.jcs, zcd: k.zcd };
+      });
+
+      var payload = 'GXUST-TT-1|' + JSON.stringify({ kbList: slim });
+
+      if (window.GxustNative && window.GxustNative.onResult) {
+        window.GxustNative.onResult(payload);
+        return slim.length;
+      }
+      throw new Error('没有连接到 App，请从 App 内打开同步');
+    });
+  }
+
+  btn.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (btn.className === 'busy') return;
+
+    setBtn('抓取中…', 'busy');
+    grab().then(function (n) {
+      setBtn('成功 ' + n + ' 条', 'ok');
+      tip('已抓到 ' + n + ' 条课程，正在返回课表…');
+    }).catch(function (err) {
+      setBtn('失败', 'err');
+      var msg = err && err.message ? err.message : String(err);
+      tip('同步失败：' + msg, true);
+      if (window.GxustNative && window.GxustNative.onError) {
+        window.GxustNative.onError(msg);
+      }
+      setTimeout(function () { setBtn('同步课表', ''); }, 3600);
+    });
+  });
+
+  var tries = 0;
+  function mount() {
+    if (!document.body) {
+      if (++tries > 60) return;
+      setTimeout(mount, 200);
+      return;
+    }
+    if (document.getElementById('gxust-app-sync')) return;
+    document.body.appendChild(btn);
+    document.body.appendChild(toast);
+  }
+  mount();
+})();
