@@ -11,8 +11,8 @@ android {
         applicationId = "com.gxust.timetable"
         minSdk = 24
         targetSdk = 34
-        versionCode = 6
-        versionName = "2.8.0"
+        versionCode = 7
+        versionName = "2.8.1"
     }
 
     buildTypes {
