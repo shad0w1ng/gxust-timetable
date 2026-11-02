@@ -16,11 +16,14 @@ object NotificationHelper {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
+        // DEFAULT 而不是 HIGH：只在通知栏出现，不在屏幕顶部弹横幅。
+        // 全程没有 setFullScreenIntent，所以绝不会全屏。
         val ch = NotificationChannel(
-            CHANNEL_ID, "上课提醒", NotificationManager.IMPORTANCE_HIGH
+            CHANNEL_ID, "上课提醒", NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = "上课前的课程提醒"
             enableVibration(true)
+            setShowBadge(true)
         }
         nm.createNotificationChannel(ch)
     }
