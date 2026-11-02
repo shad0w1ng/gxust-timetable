@@ -50,9 +50,16 @@ jobs:
           cd android
           gradle assembleDebug --no-daemon --stacktrace
 
+      - name: 重命名 APK
+        run: |
+          cd android/app/build/outputs/apk/debug
+          ls -la
+          mv app-debug.apk "课程表.apk"
+          ls -la
+
       - name: 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: gxust-timetable-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: 课程表
+          path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 90
