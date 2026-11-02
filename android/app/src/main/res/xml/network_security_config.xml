@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 默认仍然禁止明文流量 -->
-    <base-config cleartextTrafficPermitted="false" />
+    <!-- 教务系统会把 https 重定向到 http，这里直接全局放行明文。
+         本 App 只加载学校域名和本地资源，不访问其他站点。 -->
+    <base-config cleartextTrafficPermitted="true" />
 
     <!-- 只对学校域名放行：教务系统内部有部分 http 资源 -->
     <domain-config cleartextTrafficPermitted="true">
