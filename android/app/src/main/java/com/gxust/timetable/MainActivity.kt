@@ -34,6 +34,9 @@ class MainActivity : Activity() {
         web = WebView(this)
         setContentView(web)
 
+        // 登录一次后 cookie 会持久保存，下次免登录
+        android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -111,9 +114,7 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun openLogin() {
-            runOnUiThread {
-                startActivity(Intent(this@MainActivity, SyncActivity::class.java))
-            }
+            runOnUiThread { smartSync() }
         }
 
         @JavascriptInterface
@@ -149,6 +150,43 @@ class MainActivity : Activity() {
         fun requestNotificationPermission() {
             runOnUiThread { askNotificationPermission() }
         }
+    }
+
+    private var syncing = false
+
+    /**
+     * 先拿 WebView 里现成的 cookie 直接拉课表：
+     * 会话还有效就秒出结果，完全不用看登录页；
+     * 失效了才打开内置浏览器让用户重新登录。
+     */
+    private fun smartSync() {
+        if (syncing) {
+            toast("正在同步，请稍候")
+            return
+        }
+        val cookie = JwxtClient.currentCookie()
+        if (cookie == null) {
+            // 从没登录过，直接去登录
+            startActivity(Intent(this, SyncActivity::class.java))
+            return
+        }
+
+        syncing = true
+        toast("正在同步…")
+
+        Thread {
+            val payload = JwxtClient.fetchTimetable(cookie)
+            runOnUiThread {
+                syncing = false
+                if (payload != null) {
+                    val js = "window.__onSyncPayload(" + JSONObject.quote(payload) + ");"
+                    web.evaluateJavascript(js, null)
+                } else {
+                    // 会话过期或接口变化，退回登录流程
+                    startActivity(Intent(this, SyncActivity::class.java))
+                }
+            }
+        }.start()
     }
 
     private fun askNotificationPermission() {
@@ -204,6 +242,11 @@ class MainActivity : Activity() {
 
     private fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try { android.webkit.CookieManager.getInstance().flush() } catch (e: Exception) {}
     }
 
     override fun onResume() {

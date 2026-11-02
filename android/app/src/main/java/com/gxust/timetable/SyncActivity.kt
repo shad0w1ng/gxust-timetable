@@ -93,7 +93,7 @@ class SyncActivity : Activity() {
             }
         }
 
-        web.loadUrl("https://jwxt.gxust.edu.cn/xtgl/login_slogin.html")
+        web.loadUrl("https://jwxt.gxust.edu.cn/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N2151&layout=default")
     }
 
     private fun inject(view: WebView) {
@@ -109,6 +109,8 @@ class SyncActivity : Activity() {
         @JavascriptInterface
         fun onResult(payload: String) {
             runOnUiThread {
+                // 立刻把登录 cookie 落盘，下次才不用重新登录
+                try { android.webkit.CookieManager.getInstance().flush() } catch (e: Exception) {}
                 SyncBus.put(payload)
                 Toast.makeText(this@SyncActivity, "抓取成功，正在导入…", Toast.LENGTH_SHORT).show()
                 finish()

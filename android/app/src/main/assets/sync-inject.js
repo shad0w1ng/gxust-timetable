@@ -125,6 +125,32 @@
     });
   });
 
+  /* ---------- 自动同步 ---------- */
+  function isLoginPage() {
+    return /login_slogin|login_sso|\/login/i.test(location.href);
+  }
+
+  // 登录成功后的页面会自动抓一次，用户不用点按钮
+  function autoGrab() {
+    if (isLoginPage()) return;
+    if (window.__gxustAutoDone) return;
+    window.__gxustAutoDone = true;
+
+    setBtn('自动同步中…', 'busy');
+    setTimeout(function () {
+      grab().then(function (n) {
+        setBtn('成功 ' + n + ' 条', 'ok');
+        tip('已抓到 ' + n + ' 条课程，正在返回课表…');
+      }).catch(function (err) {
+        // 自动失败不打扰，留按钮让用户手动重试
+        setBtn('同步课表', '');
+        window.__gxustAutoDone = false;
+        var msg = err && err.message ? err.message : String(err);
+        if (!isLoginPage()) tip('自动同步没成功：' + msg, true);
+      });
+    }, 1000);
+  }
+
   var tries = 0;
   function mount() {
     if (!document.body) {
@@ -135,6 +161,7 @@
     if (document.getElementById('gxust-app-sync')) return;
     document.body.appendChild(btn);
     document.body.appendChild(toast);
+    autoGrab();
   }
   mount();
 })();
