@@ -22,6 +22,7 @@ class SyncActivity : Activity() {
     private lateinit var web: WebView
 
     @SuppressLint("SetJavaScriptEnabled")
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -80,6 +81,8 @@ class SyncActivity : Activity() {
             loadWithOverviewMode = true
             builtInZoomControls = true
             displayZoomControls = false
+            // 教务系统内部有 http 资源，放行混合内容
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
         web.addJavascriptInterface(Bridge(), "GxustNative")

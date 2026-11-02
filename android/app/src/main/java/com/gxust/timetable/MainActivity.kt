@@ -25,6 +25,7 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
 
     @SuppressLint("SetJavaScriptEnabled")
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -38,6 +39,7 @@ class MainActivity : Activity() {
             useWideViewPort = true
             loadWithOverviewMode = false
             mediaPlaybackRequiresUserGesture = false
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
         // 用 https://appassets.androidplatform.net/ 提供本地资源，

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 默认仍然禁止明文流量 -->
+    <base-config cleartextTrafficPermitted="false" />
+
+    <!-- 只对学校域名放行：教务系统内部有部分 http 资源 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">gxust.edu.cn</domain>
+    </domain-config>
+</network-security-config>

@@ -33,6 +33,13 @@ jobs:
           echo "--- assets/www ---"
           ls -la android/app/src/main/assets/www
 
+      - name: 缓存签名文件
+        id: keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: debug-keystore-v1
+
       - name: 配置 Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
