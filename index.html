@@ -569,7 +569,7 @@ body{
     <div class="note">
       非学校官方应用，数据仅供参考，以教务系统为准。课表仅保存在本机浏览器，不会上传到任何服务器。
     </div>
-    <div class="note" style="text-align:center;padding-top:18px;opacity:.6;">课表 <span id="appVer">v2.8.1 · 网页版</span></div>
+    <div class="note" style="text-align:center;padding-top:18px;opacity:.6;">课表 <span id="appVer">v2.8.2 · 网页版</span></div>
   </div>
 
   <!-- 拖动时提示目标周次 -->
@@ -1108,6 +1108,7 @@ let detailId = null;     // 详情面板对应的 entry id
 let impParsed = [];      // 导入预览
 let impMode = 'append';
 let courseQuery = '';    // 课程搜索关键词
+let lastSyncInfo = null;  // 上一次同步的诊断信息
 
 function buildDemo(){
   return DEMO_ENTRIES.map(r=>{
@@ -2471,7 +2472,7 @@ function fillSample(){
 }
 
 /* ---- Via 浏览器用户脚本（推荐） ---- */
-const VIA_SCRIPT = "// ==UserScript==\n// @name         广科课表同步\n// @namespace    gxust-timetable\n// @version      1.0\n// @description  在广西科技大学教务系统课表页注入一个按钮，点一下把课表抓到剪贴板，回到课表 App 粘贴导入\n// @match        https://jwxt.gxust.edu.cn/*\n// @run-at       document-idle\n// @grant        none\n// ==/UserScript==\n\n(function () {\n  'use strict';\n\n  // 只在顶层页面注入，避免 iframe 里重复出现\n  if (window.top !== window) return;\n  if (window.__gxustSyncLoaded) return;\n  window.__gxustSyncLoaded = true;\n\n  /* ---------- 样式 ---------- */\n  function injectStyle(){\n  var style = document.createElement('style');\n  style.textContent = [\n    '#gxust-sync{position:fixed;right:16px;bottom:88px;z-index:2147483647;',\n    'padding:11px 18px;border-radius:24px;border:0;cursor:pointer;',\n    'font-size:15px;font-weight:600;font-family:-apple-system,sans-serif;',\n    'color:#fff;background:linear-gradient(135deg,#2f8bf0,#1257ad);',\n    'box-shadow:0 8px 24px -8px rgba(26,111,212,.95);',\n    'transition:transform .12s ease,opacity .2s ease;opacity:.94;}',\n    '#gxust-sync:active{transform:scale(.94);}',\n    '#gxust-sync.ok{background:linear-gradient(135deg,#22c55e,#15803d);}',\n    '#gxust-sync.err{background:linear-gradient(135deg,#ef4444,#b91c1c);}',\n    '#gxust-sync.busy{opacity:.6;}',\n    '#gxust-toast{position:fixed;right:16px;bottom:140px;z-index:2147483647;',\n    'max-width:76vw;padding:10px 15px;border-radius:12px;',\n    'background:rgba(20,24,30,.94);color:#fff;font-size:13px;line-height:1.5;',\n    'font-family:-apple-system,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.3);',\n    'opacity:0;transition:opacity .22s ease;pointer-events:none;white-space:pre-wrap;}',\n    '#gxust-toast.show{opacity:1;}'\n  ].join('');\n  var host = document.head || document.documentElement;\n  if (host) host.appendChild(style);\n  }\n\n  /* ---------- 组件 ---------- */\n  var btn = document.createElement('button');\n  btn.id = 'gxust-sync';\n  btn.textContent = '同步课表';\n\n  var toast = document.createElement('div');\n  toast.id = 'gxust-toast';\n\n  var toastTimer = null;\n  function tip(msg, sticky) {\n    toast.textContent = msg;\n    toast.classList.add('show');\n    clearTimeout(toastTimer);\n    if (!sticky) toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 2600);\n  }\n\n  function setBtn(text, cls) {\n    btn.textContent = text;\n    btn.className = cls || '';\n  }\n\n  /* ---------- 学年学期 ---------- */\n  function guessTerm() {\n    var xnm = '', xqm = '';\n    var e1 = document.querySelector('#xnm');\n    var e2 = document.querySelector('#xqm');\n    if (e1 && e1.value) xnm = e1.value;\n    if (e2 && e2.value) xqm = e2.value;\n\n    if (!xnm || !xqm) {\n      var d = new Date();\n      var m = d.getMonth() + 1;\n      var y = d.getFullYear();\n      if (m >= 8) { xnm = String(y); xqm = '3'; }\n      else if (m === 1) { xnm = String(y - 1); xqm = '3'; }\n      else { xnm = String(y); xqm = '12'; }\n    }\n    return { xnm: xnm, xqm: xqm };\n  }\n\n  function getStudentId() {\n    var q = new URLSearchParams(location.search);\n    var su = q.get('su');\n    if (su) return su;\n    var el = document.querySelector('#sessionUserKey');\n    if (el && el.value) return el.value;\n    var m = document.documentElement.innerHTML.match(/su=(\\d{6,})/);\n    return m ? m[1] : '';\n  }\n\n  /* ---------- 复制 ---------- */\n  // 返回 'ok'（已写入剪贴板）或 'manual'（弹出面板让用户长按复制）\n  function copyText(text) {\n    return new Promise(function (resolve) {\n      var done = false;\n\n      function finish(ok) {\n        if (done) return;\n        done = true;\n        if (ok) resolve('ok');\n        else { showManual(text); resolve('manual'); }\n      }\n\n      function fallback() {\n        try {\n          var ta = document.createElement('textarea');\n          ta.value = text;\n          ta.style.cssText = 'position:fixed;left:-9999px;top:0;';\n          document.body.appendChild(ta);\n          ta.focus();\n          ta.select();\n          if (ta.setSelectionRange) ta.setSelectionRange(0, ta.value.length);\n          var ok = false;\n          try { ok = document.execCommand('copy'); } catch (e) { ok = false; }\n          document.body.removeChild(ta);\n          finish(ok);\n        } catch (e) { finish(false); }\n      }\n\n      if (navigator.clipboard && navigator.clipboard.writeText) {\n        navigator.clipboard.writeText(text)\n          .then(function () { finish(true); })\n          .catch(fallback);\n      } else {\n        fallback();\n      }\n\n      // 兜底：2 秒还没结果就弹面板\n      setTimeout(function () { if (!done) finish(false); }, 2000);\n    });\n  }\n\n  /* 剪贴板不可用时，弹一个可长按复制的面板 */\n  function showManual(text) {\n    var mask = document.createElement('div');\n    mask.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.6);'\n      + 'display:flex;align-items:center;justify-content:center;padding:16px;';\n\n    var box = document.createElement('div');\n    box.style.cssText = 'background:#fff;border-radius:14px;padding:14px;width:100%;max-width:430px;box-sizing:border-box;';\n\n    var title = document.createElement('div');\n    title.textContent = '长按下面的文字，全选后复制';\n    title.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:8px;color:#111;';\n\n    var ta = document.createElement('textarea');\n    ta.value = text;\n    ta.readOnly = true;\n    ta.style.cssText = 'width:100%;height:150px;font-size:11px;line-height:1.4;border:1px solid #ddd;'\n      + 'border-radius:8px;padding:8px;box-sizing:border-box;color:#111;background:#f7f7f8;';\n\n    var close = document.createElement('button');\n    close.textContent = '关闭';\n    close.style.cssText = 'margin-top:10px;width:100%;padding:11px;border:0;border-radius:8px;'\n      + 'background:#1a6fd4;color:#fff;font-size:14px;font-weight:600;';\n    close.onclick = function () {\n      if (mask.parentNode) mask.parentNode.removeChild(mask);\n    };\n\n    box.appendChild(title);\n    box.appendChild(ta);\n    box.appendChild(close);\n    mask.appendChild(box);\n    document.body.appendChild(mask);\n\n    setTimeout(function () { ta.focus(); ta.select(); }, 50);\n  }\n\n  /* ---------- 抓取 ---------- */\n  function grab() {\n    var t = guessTerm();\n    var su = getStudentId();\n    var url = '/kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151' + (su ? '&su=' + encodeURIComponent(su) : '');\n\n    return fetch(url, {\n      method: 'POST',\n      credentials: 'include',\n      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },\n      body: 'xnm=' + t.xnm + '&xqm=' + t.xqm\n    }).then(function (r) {\n      if (r.status === 302 || r.redirected) throw new Error('登录已失效，请重新登录教务系统');\n      return r.text();\n    }).then(function (text) {\n      var data;\n      try { data = JSON.parse(text); }\n      catch (e) { throw new Error('返回的不是课表数据，请确认停在课表页面'); }\n\n      var list = data.kbList || [];\n      if (!list.length) {\n        throw new Error('课表为空。可能在' + t.xnm + '学年学期码' + t.xqm + '下没有课，可在教务系统里切换学期后重试');\n      }\n\n      var slim = list.map(function (k) {\n        return {\n          kcmc: k.kcmc, xm: k.xm, cdmc: k.cdmc,\n          xqj: k.xqj, jcs: k.jcs, zcd: k.zcd\n        };\n      });\n\n      var payload = 'GXUST-TT-1|' + JSON.stringify({ kbList: slim });\n      return copyText(payload).then(function (how) { return { n: slim.length, how: how }; });\n    });\n  }\n\n  /* ---------- 交互 ---------- */\n  btn.addEventListener('click', function (e) {\n    e.preventDefault();\n    e.stopPropagation();\n    if (btn.classList.contains('busy')) return;\n\n    setBtn('抓取中…', 'busy');\n    grab().then(function (r) {\n      if (r.how === 'manual') {\n        setBtn('待手动复制', 'ok');\n        tip('剪贴板被系统拦截，已弹出面板，长按全选复制即可。');\n      } else {\n        setBtn('已复制 ' + r.n + ' 条', 'ok');\n        tip('已复制 ' + r.n + ' 条课程到剪贴板。\\n回到课表 App → 我的 → 粘贴导入');\n      }\n      setTimeout(function () { setBtn('同步课表', ''); }, 3200);\n    }).catch(function (err) {\n      setBtn('失败', 'err');\n      tip('同步失败：' + (err && err.message ? err.message : err), true);\n      setTimeout(function () { setBtn('同步课表', ''); }, 3600);\n    });\n  });\n\n  /* ---------- 挂载 ---------- */\n  var tries = 0;\n  function mount() {\n    if (!document.body) {\n      if (++tries > 60) return;                 // 最多等 12 秒\n      setTimeout(mount, 200);\n      return;\n    }\n    if (document.getElementById('gxust-sync')) return;\n    try { injectStyle(); } catch (e) {}\n    document.body.appendChild(btn);\n    document.body.appendChild(toast);\n  }\n\n  function fatal(e) {\n    try {\n      var box = document.createElement('div');\n      box.textContent = '课表同步脚本出错：' + (e && e.message ? e.message : e);\n      box.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;'\n        + 'background:#c53030;color:#fff;font-size:13px;padding:10px;line-height:1.5;';\n      (document.body || document.documentElement).appendChild(box);\n    } catch (x) {}\n  }\n\n  function boot() {\n    try { mount(); } catch (e) { fatal(e); }\n  }\n\n  if (document.readyState === 'loading') {\n    document.addEventListener('DOMContentLoaded', boot);\n    // 兜底：万一 DOMContentLoaded 已经错过\n    setTimeout(boot, 1500);\n  } else {\n    boot();\n  }\n})();\n";
+const VIA_SCRIPT = "(function () {\n  if (window.__gxustAppSyncLoaded) return;\n  window.__gxustAppSyncLoaded = true;\n\n  var style = document.createElement('style');\n  style.textContent = [\n    '#gxust-app-sync{position:fixed;right:16px;bottom:88px;z-index:2147483647;',\n    'padding:12px 20px;border-radius:26px;border:0;cursor:pointer;',\n    'font-size:16px;font-weight:600;font-family:-apple-system,sans-serif;',\n    'color:#fff;background:linear-gradient(135deg,#2f8bf0,#1257ad);',\n    'box-shadow:0 8px 26px -8px rgba(26,111,212,.95);opacity:.96;}',\n    '#gxust-app-sync:active{transform:scale(.94);}',\n    '#gxust-app-sync.ok{background:linear-gradient(135deg,#22c55e,#15803d);}',\n    '#gxust-app-sync.err{background:linear-gradient(135deg,#ef4444,#b91c1c);}',\n    '#gxust-app-toast{position:fixed;right:16px;bottom:142px;z-index:2147483647;',\n    'max-width:78vw;padding:10px 15px;border-radius:12px;',\n    'background:rgba(20,24,30,.94);color:#fff;font-size:13px;line-height:1.5;',\n    'font-family:-apple-system,sans-serif;opacity:0;transition:opacity .22s ease;',\n    'pointer-events:none;white-space:pre-wrap;}',\n    '#gxust-app-toast.show{opacity:1;}'\n  ].join('');\n  (document.head || document.documentElement).appendChild(style);\n\n  var btn = document.createElement('button');\n  btn.id = 'gxust-app-sync';\n  btn.textContent = '同步课表';\n\n  var toast = document.createElement('div');\n  toast.id = 'gxust-app-toast';\n\n  var timer = null;\n  function tip(msg, sticky) {\n    toast.textContent = msg;\n    toast.classList.add('show');\n    clearTimeout(timer);\n    if (!sticky) timer = setTimeout(function () { toast.classList.remove('show'); }, 3000);\n  }\n\n  function setBtn(text, cls) {\n    btn.textContent = text;\n    btn.className = cls || '';\n  }\n\n  function term() {\n    var xnm = '', xqm = '';\n    var e1 = document.querySelector('#xnm');\n    var e2 = document.querySelector('#xqm');\n    if (e1 && e1.value) xnm = e1.value;\n    if (e2 && e2.value) xqm = e2.value;\n\n    // 页面选择器没就绪时，从地址栏参数读（正方课表页 URL 常带 xnm/xqm）\n    if (!xnm || !xqm) {\n      try {\n        var q = new URLSearchParams(location.search);\n        if (!xnm && q.get('xnm')) xnm = q.get('xnm');\n        if (!xqm && q.get('xqm')) xqm = q.get('xqm');\n      } catch (e) {}\n    }\n\n    if (!xnm || !xqm) {\n      var d = new Date();\n      var m = d.getMonth() + 1;\n      var y = d.getFullYear();\n      if (m >= 8) { xnm = String(y); xqm = '3'; }\n      else if (m === 1) { xnm = String(y - 1); xqm = '3'; }\n      else { xnm = String(y); xqm = '12'; }\n    }\n    return { xnm: xnm, xqm: xqm };\n  }\n\n  /* 候选学期：主选在前，只在主选返回空时才往后试 */\n  function termCandidates() {\n    var base = term();\n    var out = [{ xnm: base.xnm, xqm: base.xqm }];\n    function push(xnm, xqm) {\n      if (!xnm || !xqm) return;\n      for (var i = 0; i < out.length; i++) {\n        if (out[i].xnm === xnm && out[i].xqm === xqm) return;\n      }\n      out.push({ xnm: xnm, xqm: xqm });\n    }\n    var y = String(+base.xnm || new Date().getFullYear());\n    push(y, '3'); push(y, '12'); push(y, '16');\n    push(String(+y - 1), '12'); push(String(+y - 1), '3');\n    return out;\n  }\n\n  function studentId() {\n    var q = new URLSearchParams(location.search);\n    var su = q.get('su');\n    if (su) return su;\n    var el = document.querySelector('#sessionUserKey');\n    if (el && el.value) return el.value;\n    var m = document.documentElement.innerHTML.match(/su=(\\d{6,})/);\n    return m ? m[1] : '';\n  }\n\n  function requestOnce(t, su) {\n    var url = '/kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151' + (su ? '&su=' + encodeURIComponent(su) : '');\n    return fetch(url, {\n      method: 'POST',\n      credentials: 'include',\n      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },\n      body: 'xnm=' + t.xnm + '&xqm=' + t.xqm\n    }).then(function (r) {\n      if (r.status === 302 || r.redirected) throw new Error('登录已失效，请重新登录');\n      return r.text();\n    }).then(function (text) {\n      var data;\n      try { data = JSON.parse(text); }\n      catch (e) { throw new Error('返回的不是课表数据，请确认停在课表页面'); }\n      return data;\n    });\n  }\n\n  function grab() {\n    var su = studentId();\n    var cands = termCandidates();\n    var idx = 0;\n    var used = null;\n\n    function step() {\n      if (idx >= cands.length) return Promise.resolve(null);\n      var t = cands[idx++];\n      return requestOnce(t, su).then(function (data) {\n        var list = data.kbList || [];\n        if (list.length) { used = { t: t, data: data }; return used; }\n        return step();          // 这个学期没课，换下一个候选\n      });\n    }\n\n    return step().then(function (hit) {\n      if (!hit) {\n        throw new Error('教务系统返回的课表为空（试过 ' + cands.length + ' 个学期），请确认已登录且学期选择正确');\n      }\n\n      var data = hit.data;\n      var kb = data.kbList || [];\n      var sjk = (data.sjkList || []).filter(function (x) { return x && x.xqj && x.jcs; });\n\n      var slim = function (k) {\n        return { kcmc: k.kcmc, xm: k.xm, cdmc: k.cdmc, xqj: k.xqj, jcs: k.jcs, zcd: k.zcd };\n      };\n\n      var payload = 'GXUST-TT-1|' + JSON.stringify({\n        kbList: kb.map(slim),\n        sjkList: sjk.map(slim),\n        xnm: hit.t.xnm,\n        xqm: hit.t.xqm\n      });\n\n      if (window.GxustNative && window.GxustNative.onResult) {\n        window.GxustNative.onResult(payload);\n        return kb.length + sjk.length;\n      }\n      throw new Error('没有连接到 App，请从 App 内打开同步');\n    });\n  }\n\n  btn.addEventListener('click', function (e) {\n    e.preventDefault();\n    e.stopPropagation();\n    if (btn.className === 'busy') return;\n\n    setBtn('抓取中…', 'busy');\n    grab().then(function (n) {\n      setBtn('成功 ' + n + ' 条', 'ok');\n      tip('已抓到 ' + n + ' 条课程，正在返回课表…');\n    }).catch(function (err) {\n      setBtn('失败', 'err');\n      var msg = err && err.message ? err.message : String(err);\n      tip('同步失败：' + msg, true);\n      if (window.GxustNative && window.GxustNative.onError) {\n        window.GxustNative.onError(msg);\n      }\n      setTimeout(function () { setBtn('同步课表', ''); }, 3600);\n    });\n  });\n\n  /* ---------- 自动同步 ---------- */\n  function isLoginPage() {\n    return /login_slogin|login_sso|\\/login/i.test(location.href);\n  }\n\n  // 登录成功后的页面会自动抓一次，用户不用点按钮\n  function autoGrab() {\n    if (isLoginPage()) return;\n    if (window.__gxustAutoDone) return;\n    window.__gxustAutoDone = true;\n\n    setBtn('自动同步中…', 'busy');\n    setTimeout(function () {\n      grab().then(function (n) {\n        setBtn('成功 ' + n + ' 条', 'ok');\n        tip('已抓到 ' + n + ' 条课程，正在返回课表…');\n      }).catch(function (err) {\n        // 自动失败不打扰，留按钮让用户手动重试\n        setBtn('同步课表', '');\n        window.__gxustAutoDone = false;\n        var msg = err && err.message ? err.message : String(err);\n        if (!isLoginPage()) tip('自动同步没成功：' + msg, true);\n      });\n    }, 1000);\n  }\n\n  var tries = 0;\n  function mount() {\n    if (!document.body) {\n      if (++tries > 60) return;\n      setTimeout(mount, 200);\n      return;\n    }\n    if (document.getElementById('gxust-app-sync')) return;\n    document.body.appendChild(btn);\n    document.body.appendChild(toast);\n    autoGrab();\n  }\n  mount();\n})();\n";
 
 /* ---- App 内同步：内置浏览器抓完直接回传 ---- */
 window.__onSyncPayload = function(payload){
@@ -2483,12 +2484,21 @@ window.__onSyncPayload = function(payload){
     document.getElementById('impStep1').classList.add('hidden');
     document.getElementById('impStep2').classList.remove('hidden');
     document.getElementById('impTitle').textContent = '已从教务系统同步';
-    document.getElementById('impSub').textContent = '抓到 ' + impParsed.length + ' 个上课时段，确认后导入';
+
+    const info = lastSyncInfo || {};
+    const parts = [];
+    parts.push('接口返回 ' + (info.rawCount || parsed.length) + ' 条 → 识别 ' + parsed.length + ' 个时段');
+    if(info.names) parts.push(info.names + ' 门课');
+    if(info.weekMin) parts.push('覆盖第 ' + info.weekMin + '-' + info.weekMax + ' 周');
+    if(info.badCount) parts.push(info.badCount + ' 条无课程名已跳过');
+    if(info.xnm) parts.push(info.xnm + ' 学年 ' + info.xqm + ' 学期');
+    document.getElementById('impSub').textContent = parts.join(' · ');
+
     setImportMode('replace');
     renderImportList();
     openSheet('sheet-import');
   }catch(e){
-    showToast('同步数据处理失败');
+    showToast('同步数据处理失败：' + (e && e.message ? e.message : ''));
   }
 };
 
@@ -2497,39 +2507,88 @@ const BOOKMARKLET = "javascript:(async()=>{try{var m=new Date().getMonth()+1,y=n
 
 /* 解析书签产出的数据包（也兼容直接粘贴正方原始 JSON） */
 function parseSyncPayload(text){
+  lastSyncInfo = null;
+
   let t = String(text || '').trim();
   if(t.startsWith('GXUST-TT-1')) t = t.slice(11).trim();
   if(!(t.startsWith('{') || t.startsWith('['))) return null;
   let json;
   try{ json = JSON.parse(t); }catch(e){ return null; }
-  const list = Array.isArray(json) ? json : (json.kbList || json.list || []);
-  if(!Array.isArray(list) || !list.length) return null;
 
-  return list.map(k=>{
-    const name = k.kcmc || k.name || k.n || '';
-    const teacher = k.xm || k.teacher || k.t || '';
-    const room = k.cdmc || k.room || k.r || '';
-    const day = clamp(parseInt(k.xqj || k.day || k.d, 10) || 1, 1, 7);
+  const isArr = Array.isArray(json);
+  const kb = isArr ? json : (json.kbList || json.list || []);
+  // 实践课只在有明确星期和节次时才纳入，否则会造出假课
+  const sj = isArr ? [] : (json.sjkList || []).filter(x => x && x.xqj && x.jcs);
+  if(!Array.isArray(kb) || !kb.length) return null;
 
-    const jcs = String(k.jcs || k.period || k.p || '');
-    let start = 1, end = 2;
-    const range = jcs.match(/(\d{1,2})\s*[-~]\s*(\d{1,2})/);
-    if(range){
-      start = clamp(+range[1], 1, maxPeriod()); end = clamp(+range[2], 1, maxPeriod());
-    }else if(/^\d{4}$/.test(jcs)){
-      start = clamp(+jcs.slice(0,2), 1, maxPeriod()); end = clamp(+jcs.slice(2), 1, maxPeriod());
-    }else{
-      const one = jcs.match(/(\d{1,2})/);
-      if(one) start = end = clamp(+one[1], 1, maxPeriod());
-    }
+  // kbList（理论课）+ sjkList（实践/实习课，有节次的才算）
+  const raw = kb.concat(Array.isArray(sj) ? sj : []);
+
+  const out = [];
+  let bad = 0;
+  raw.forEach(k=>{
+    const name = (k.kcmc || k.name || k.n || '').trim();
+    if(!name){ bad++; return; }
+
+    const jp = parseJcsValue(k.jcs || k.period || k.p || '');
+    const start = clamp(jp[0], 1, maxPeriod());
+    const end = clamp(Math.max(start, jp[1]), 1, maxPeriod());
 
     let weeks = parseWeeksText(k.zcd || k.weeks || k.w || '');
     if(!weeks.length) weeks = weeksFromRange(1, state.settings.totalWeeks, 0);
 
-    return { name, teacher, room, type:'必修', day, start,
-      end: Math.max(start, end), weeks,
-      _dayGuessed:false, _periodGuessed:false };
-  }).filter(x => x.name);
+    out.push({
+      name,
+      teacher: (k.xm || k.teacher || k.t || '').trim(),
+      room: (k.cdmc || k.room || k.r || '').trim(),
+      type: '必修',
+      day: parseDayValue(k.xqj || k.day || k.d),
+      start, end, weeks,
+      _dayGuessed: false, _periodGuessed: false
+    });
+  });
+
+  if(!out.length) return null;
+
+  // 同一门课同一时段的多条（正方常按周次拆开）先合并，预览看到的就是最终结果
+  const merged = mergeBySlot(out);
+
+  const allW = merged.reduce((a,b)=>a.concat(b.weeks), []);
+  lastSyncInfo = {
+    rawCount: raw.length,
+    okCount: merged.length,
+    badCount: bad,
+    names: new Set(out.map(x=>x.name)).size,
+    weekMin: Math.min.apply(null, allW),
+    weekMax: Math.max.apply(null, allW),
+    xnm: isArr ? '' : (json.xnm || ''),
+    xqm: isArr ? '' : (json.xqm || '')
+  };
+
+  return merged;
+}
+
+/* 星期：支持 1 / "1" / "星期一" / "一" */
+const DAY_CN = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'日':7,'天':7,'七':7 };
+function parseDayValue(v){
+  const s = String(v == null ? '' : v).trim();
+  if(/^\d+$/.test(s)) return clamp(+s, 1, 7);
+  const m = s.match(/[一二三四五六日天七]/);
+  if(m) return DAY_CN[m[0]];
+  return clamp(parseInt(s, 10) || 1, 1, 7);
+}
+
+/* 节次：支持 "1-2" / "1-2节" / "0102" / "1,2" / "第1、2节" / "3" */
+function parseJcsValue(v){
+  const s = String(v == null ? '' : v).replace(/[第节课\s]/g, '');
+  let m = s.match(/^(\d{1,2})\s*[-~—到]\s*(\d{1,2})$/);
+  if(m) return [+m[1], +m[2]];
+  m = s.match(/^(\d{1,2})\s*[,、+]\s*(\d{1,2})$/);
+  if(m) return [Math.min(+m[1], +m[2]), Math.max(+m[1], +m[2])];
+  if(/^\d{4}$/.test(s)) return [+s.slice(0,2), +s.slice(2)];
+  m = s.match(/(\d{1,2})/);
+  if(m) return [+m[1], +m[1]];
+  return [1, 2];
 }
 
 let bmMode = 'via';
@@ -2775,24 +2834,58 @@ function removeImportItem(i){
   impParsed.splice(i,1);
   renderImportList();
 }
+/* 同一门课、同一时段的多条记录（正方常按周次拆成 1-8 周 / 9-16 周两条）→ 合并周次 */
+function mergeBySlot(list){
+  const keyOf = e => [e.name.replace(/\s+/g,''), e.day, e.start, e.end].join('|');
+  const byKey = new Map();
+  list.forEach(e=>{
+    const k = keyOf(e);
+    const cur = byKey.get(k);
+    if(!cur){ byKey.set(k, Object.assign({}, e, { weeks: e.weeks.slice() })); return; }
+    cur.weeks = [...new Set(cur.weeks.concat(e.weeks))].sort((a,b)=>a-b);
+    if(!cur.room && e.room) cur.room = e.room;
+    if(!cur.teacher && e.teacher) cur.teacher = e.teacher;
+  });
+  return [...byKey.values()];
+}
+
 function commitImport(){
   if(!impParsed.length) return;
-  const adds = impParsed.map(p=>normalizeEntry({
+  const adds = mergeBySlot(impParsed.map(p=>normalizeEntry({
     name: p.name, teacher: p.teacher, room: p.room, type: p.type,
     day: p.day, start: p.start, end: p.end, weeks: p.weeks, color: null
-  }));
-  if(impMode === 'replace'){ state.entries = adds; state.overrides = []; }
-  else {
+  })));
+
+  let mergedIn = 0;
+  if(impMode === 'replace'){
+    state.entries = adds;
+    state.overrides = [];
+  }else{
+    // 已存在同课同段的，合并周次而不是丢弃
     const keyOf = e => [e.name.replace(/\s+/g,''), e.day, e.start, e.end].join('|');
-    const seen = new Set(state.entries.map(keyOf));
+    const idx = new Map(state.entries.map((e,i)=>[keyOf(e), i]));
     adds.forEach(e=>{
       const k = keyOf(e);
-      if(!seen.has(k)){ state.entries.push(e); seen.add(k); }
+      if(idx.has(k)){
+        const cur = state.entries[idx.get(k)];
+        const before = cur.weeks.length;
+        cur.weeks = [...new Set(cur.weeks.concat(e.weeks))].sort((a,b)=>a-b);
+        if(cur.weeks.length > before) mergedIn++;
+        if(!cur.room && e.room) cur.room = e.room;
+        if(!cur.teacher && e.teacher) cur.teacher = e.teacher;
+      }else{
+        state.entries.push(e);
+        idx.set(k, state.entries.length - 1);
+      }
     });
   }
+
+  state.entries = state.entries.map(normalizeEntry);
   saveState(); closeSheets(); render(); scheduleReminders();
   switchTab('tt', document.querySelector('[data-tab="tt"]'));
-  showToast(impMode==='replace' ? `已导入 ${adds.length} 门课程` : `已追加 ${adds.length} 门课程`);
+
+  const extra = mergedIn ? `（${mergedIn} 个时段合并了周次）` : '';
+  showToast(impMode==='replace' ? `已导入 ${adds.length} 个上课时段${extra}` : `已追加 ${adds.length} 个时段${extra}`);
 }
 
 /* ==================== 同步（演示流程） ==================== */

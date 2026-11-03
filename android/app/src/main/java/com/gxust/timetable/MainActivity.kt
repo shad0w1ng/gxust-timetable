@@ -175,7 +175,7 @@ class MainActivity : Activity() {
         toast("正在同步…")
 
         Thread {
-            val payload = JwxtClient.fetchTimetable(cookie)
+            val payload = JwxtClient.fetchTimetable(this@MainActivity, cookie)
             runOnUiThread {
                 syncing = false
                 if (payload != null) {

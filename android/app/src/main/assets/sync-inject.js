@@ -47,6 +47,16 @@
     var e2 = document.querySelector('#xqm');
     if (e1 && e1.value) xnm = e1.value;
     if (e2 && e2.value) xqm = e2.value;
+
+    // 页面选择器没就绪时，从地址栏参数读（正方课表页 URL 常带 xnm/xqm）
+    if (!xnm || !xqm) {
+      try {
+        var q = new URLSearchParams(location.search);
+        if (!xnm && q.get('xnm')) xnm = q.get('xnm');
+        if (!xqm && q.get('xqm')) xqm = q.get('xqm');
+      } catch (e) {}
+    }
+
     if (!xnm || !xqm) {
       var d = new Date();
       var m = d.getMonth() + 1;
@@ -56,6 +66,23 @@
       else { xnm = String(y); xqm = '12'; }
     }
     return { xnm: xnm, xqm: xqm };
+  }
+
+  /* 候选学期：主选在前，只在主选返回空时才往后试 */
+  function termCandidates() {
+    var base = term();
+    var out = [{ xnm: base.xnm, xqm: base.xqm }];
+    function push(xnm, xqm) {
+      if (!xnm || !xqm) return;
+      for (var i = 0; i < out.length; i++) {
+        if (out[i].xnm === xnm && out[i].xqm === xqm) return;
+      }
+      out.push({ xnm: xnm, xqm: xqm });
+    }
+    var y = String(+base.xnm || new Date().getFullYear());
+    push(y, '3'); push(y, '12'); push(y, '16');
+    push(String(+y - 1), '12'); push(String(+y - 1), '3');
+    return out;
   }
 
   function studentId() {
@@ -68,11 +95,8 @@
     return m ? m[1] : '';
   }
 
-  function grab() {
-    var t = term();
-    var su = studentId();
+  function requestOnce(t, su) {
     var url = '/kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151' + (su ? '&su=' + encodeURIComponent(su) : '');
-
     return fetch(url, {
       method: 'POST',
       credentials: 'include',
@@ -85,21 +109,49 @@
       var data;
       try { data = JSON.parse(text); }
       catch (e) { throw new Error('返回的不是课表数据，请确认停在课表页面'); }
+      return data;
+    });
+  }
 
-      var list = data.kbList || [];
-      if (!list.length) {
-        throw new Error('课表为空，可能是学期不对（当前用 ' + t.xnm + ' 学年 ' + t.xqm + ' 学期码）');
+  function grab() {
+    var su = studentId();
+    var cands = termCandidates();
+    var idx = 0;
+    var used = null;
+
+    function step() {
+      if (idx >= cands.length) return Promise.resolve(null);
+      var t = cands[idx++];
+      return requestOnce(t, su).then(function (data) {
+        var list = data.kbList || [];
+        if (list.length) { used = { t: t, data: data }; return used; }
+        return step();          // 这个学期没课，换下一个候选
+      });
+    }
+
+    return step().then(function (hit) {
+      if (!hit) {
+        throw new Error('教务系统返回的课表为空（试过 ' + cands.length + ' 个学期），请确认已登录且学期选择正确');
       }
 
-      var slim = list.map(function (k) {
-        return { kcmc: k.kcmc, xm: k.xm, cdmc: k.cdmc, xqj: k.xqj, jcs: k.jcs, zcd: k.zcd };
-      });
+      var data = hit.data;
+      var kb = data.kbList || [];
+      var sjk = (data.sjkList || []).filter(function (x) { return x && x.xqj && x.jcs; });
 
-      var payload = 'GXUST-TT-1|' + JSON.stringify({ kbList: slim });
+      var slim = function (k) {
+        return { kcmc: k.kcmc, xm: k.xm, cdmc: k.cdmc, xqj: k.xqj, jcs: k.jcs, zcd: k.zcd };
+      };
+
+      var payload = 'GXUST-TT-1|' + JSON.stringify({
+        kbList: kb.map(slim),
+        sjkList: sjk.map(slim),
+        xnm: hit.t.xnm,
+        xqm: hit.t.xqm
+      });
 
       if (window.GxustNative && window.GxustNative.onResult) {
         window.GxustNative.onResult(payload);
-        return slim.length;
+        return kb.length + sjk.length;
       }
       throw new Error('没有连接到 App，请从 App 内打开同步');
     });
